@@ -4,7 +4,6 @@ import random
 import time
 from datetime import datetime
 from telethon import TelegramClient, events
-from telethon.tl.types import InputMessagesFilterPhotos, InputMessagesFilterVideo
 from dotenv import load_dotenv
 import logging
 
@@ -14,26 +13,17 @@ load_dotenv()
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('bot.log')
-    ]
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
 logger = logging.getLogger(__name__)
 
-# Configuration from environment variables
-API_ID = int(os.getenv('API_ID', ''))
-API_HASH = os.getenv('API_HASH', '')
-PHONE_NUMBER = os.getenv('PHONE_NUMBER', '')
-CHANNEL_USERNAMES = os.getenv('CHANNEL_USERNAMES', '').split(',')  # Multiple channels
+# Configuration
+API_ID = int(os.getenv('API_ID'))
+API_HASH = os.getenv('API_HASH')
+PHONE_NUMBER = os.getenv('PHONE_NUMBER')
+CHANNEL_USERNAMES = [c.strip() for c in os.getenv('CHANNEL_USERNAMES', '').split(',') if c.strip()]
 SESSION_NAME = 'auto_telegram_bot'
-
-# Reactions configuration
-REACTIONS = ['👍', '❤️', '🔥', '⭐', '🎉', '👏', '🙏', '😍']
-REACTION_DELAY = (5, 15)  # Random delay between 5-15 seconds
-VIEW_DELAY = (2, 8)       # Delay before viewing messages
 
 class TelegramAutoBot:
     def __init__(self):
@@ -41,18 +31,18 @@ class TelegramAutoBot:
         self.joined_channels = []
         
     async def authenticate(self):
-        """Handle authentication with phone verification"""
+        """Handle authentication"""
         try:
             await self.client.start(phone=PHONE_NUMBER)
             
             if not await self.client.is_user_authorized():
                 logger.info("First-time setup: Sending verification code...")
                 await self.client.send_code_request(PHONE_NUMBER)
-                code = input("Enter the verification code sent to your Telegram: ")
+                code = input("Enter verification code: ")
                 await self.client.sign_in(PHONE_NUMBER, code)
                 
             me = await self.client.get_me()
-            logger.info(f"Successfully authenticated as: {me.first_name} (@{me.username})")
+            logger.info(f"Authenticated as: {me.first_name}")
             return True
             
         except Exception as e:
@@ -60,146 +50,82 @@ class TelegramAutoBot:
             return False
     
     async def join_channels(self):
-        """Join all specified channels"""
-        for channel_username in CHANNEL_USERNAMES:
-            channel_username = channel_username.strip()
-            if not channel_username:
-                continue
-                
+        """Join specified channels"""
+        for username in CHANNEL_USERNAMES:
             try:
-                # Remove @ if present
-                if channel_username.startswith('@'):
-                    channel_username = channel_username[1:]
+                if username.startswith('@'):
+                    username = username[1:]
                     
-                channel = await self.client.get_entity(channel_username)
+                channel = await self.client.get_entity(username)
                 await self.client.join_channel(channel)
                 self.joined_channels.append(channel)
-                logger.info(f"✅ Successfully joined channel: {channel_username}")
-                
-                # Small delay between joins
-                await asyncio.sleep(3)
+                logger.info(f"✅ Joined: {username}")
+                await asyncio.sleep(2)
                 
             except Exception as e:
-                logger.error(f"❌ Failed to join {channel_username}: {e}")
+                logger.error(f"❌ Failed to join {username}: {e}")
     
-    async def react_to_message(self, message, reaction):
-        """React to a specific message"""
+    async def react_to_message(self, message):
+        """React to a message"""
         try:
-            await asyncio.sleep(random.uniform(*REACTION_DELAY))
+            reactions = ['👍', '❤️', '🔥', '⭐']
+            reaction = random.choice(reactions)
+            
+            await asyncio.sleep(random.uniform(5, 15))
             await message.reply(reaction)
-            logger.info(f"Reacted with {reaction} to message {message.id} in {message.chat.title}")
+            logger.info(f"Reacted with {reaction} to message")
+            
         except Exception as e:
-            logger.error(f"Failed to react to message {message.id}: {e}")
+            logger.error(f"Failed to react: {e}")
     
-    async def view_recent_messages(self, channel, limit=10):
-        """View recent messages to appear active"""
-        try:
-            async for message in self.client.iter_messages(channel, limit=limit):
-                # Simply accessing the message marks it as viewed
-                logger.info(f"Viewed message {message.id} in {channel.title}")
-                await asyncio.sleep(random.uniform(*VIEW_DELAY))
-                
-        except Exception as e:
-            logger.error(f"Error viewing messages in {channel.title}: {e}")
-    
-    async def handle_new_messages(self):
-        """Setup event handler for new messages"""
+    async def monitor_channels(self):
+        """Monitor channels for new messages"""
         @self.client.on(events.NewMessage(chats=self.joined_channels))
-        async def new_message_handler(event):
+        async def handler(event):
             message = event.message
-            if message.sender_id != (await self.client.get_me()).id:  # Don't react to own messages
-                logger.info(f"New message detected in {message.chat.title}: {message.text[:50] if message.text else 'Media message'}")
-                
-                # Choose random reaction
-                reaction = random.choice(REACTIONS)
-                
-                # React to the message
-                await self.react_to_message(message, reaction)
-    
-    async def periodic_activities(self):
-        """Perform periodic activities to stay active"""
-        while True:
-            try:
-                for channel in self.joined_channels:
-                    # View some recent messages
-                    await self.view_recent_messages(channel, limit=5)
-                    
-                    # Random delay between channel activities
-                    await asyncio.sleep(random.uniform(30, 60))
-                
-                # Wait 1-2 hours before next round of activities
-                wait_time = random.uniform(3600, 7200)  # 1-2 hours
-                logger.info(f"Next periodic activities in {wait_time/60:.1f} minutes")
-                await asyncio.sleep(wait_time)
-                
-            except Exception as e:
-                logger.error(f"Error in periodic activities: {e}")
-                await asyncio.sleep(300)  # Wait 5 minutes before retry
+            if message.sender_id != (await self.client.get_me()).id:
+                logger.info(f"New message in {message.chat.title}")
+                await self.react_to_message(message)
     
     async def run(self):
-        """Main execution function"""
+        """Main execution"""
         try:
-            # Authenticate
             if not await self.authenticate():
                 return
             
-            # Join channels
             await self.join_channels()
             
             if not self.joined_channels:
-                logger.error("No channels joined. Exiting.")
+                logger.error("No channels joined")
                 return
             
-            # Setup message handler
-            await self.handle_new_messages()
+            await self.monitor_channels()
             
-            logger.info("🤖 Bot is now running and monitoring channels...")
-            logger.info(f"Monitoring {len(self.joined_channels)} channels")
-            
-            # Start periodic activities in background
-            asyncio.create_task(self.periodic_activities())
-            
-            # Keep the client running
+            logger.info("🤖 Bot is running...")
             await self.client.run_until_disconnected()
             
         except Exception as e:
             logger.error(f"Bot crashed: {e}")
-            # Wait before restarting
-            await asyncio.sleep(60)
 
-# Health check for Render
+# Flask app for health checks
 from flask import Flask
 app = Flask(__name__)
 
 @app.route('/')
-def health_check():
-    return {
-        "status": "running",
-        "timestamp": datetime.now().isoformat(),
-        "service": "Telegram Auto Bot"
-    }
+def home():
+    return {"status": "running", "time": datetime.now().isoformat()}
 
 @app.route('/health')
 def health():
-    return "OK", 200
+    return "OK"
 
-async def run_bot():
+def start_bot():
+    """Start the Telegram bot"""
     bot = TelegramAutoBot()
-    await bot.run()
-
-def start_services():
-    """Start both Flask app and Telegram bot"""
-    import threading
-    
-    # Start Flask app in a thread
-    def run_flask():
-        app.run(host='0.0.0.0', port=5000, debug=False)
-    
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    
-    # Start Telegram bot in main thread
-    asyncio.run(run_bot())
+    asyncio.run(bot.run())
 
 if __name__ == '__main__':
-    start_services()
+    # For Render, we'll just run Flask
+    # The bot will be started manually after verification
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
