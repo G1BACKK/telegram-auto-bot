@@ -19,8 +19,9 @@ CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
 
 app = Flask(__name__)
 
-# Global variable to track bot status
+# Global variables
 bot_status = "Not started"
+verification_code = None
 
 @app.route('/')
 def home():
@@ -28,6 +29,7 @@ def home():
     <h1>Telegram Auto Bot</h1>
     <p>Status: {bot_status}</p>
     <p><a href="/start_bot">Start Bot</a></p>
+    <p><a href="/enter_code">Enter Verification Code</a></p>
     """
 
 @app.route('/start_bot')
@@ -35,7 +37,6 @@ def start_bot():
     global bot_status
     bot_status = "Starting..."
     
-    # Start bot in background
     import threading
     thread = threading.Thread(target=run_bot, daemon=True)
     thread.start()
@@ -43,8 +44,30 @@ def start_bot():
     return """
     <h1>Bot Started</h1>
     <p>Check your Telegram app for verification code</p>
-    <p>The bot will automatically retry every 60 seconds</p>
-    <p>Check Render logs for status</p>
+    <p>Then <a href="/enter_code">enter the code here</a></p>
+    """
+
+@app.route('/enter_code')
+def enter_code_page():
+    return """
+    <h1>Enter Verification Code</h1>
+    <form action="/submit_code" method="post">
+        <input type="text" name="code" placeholder="Enter 5-digit code" required>
+        <button type="submit">Verify</button>
+    </form>
+    """
+
+@app.route('/submit_code', methods=['POST'])
+def submit_code():
+    global verification_code
+    code = request.form.get('code')
+    verification_code = code
+    logger.info(f"📱 Verification code received: {code}")
+    
+    return f"""
+    <h1>Code Submitted: {code}</h1>
+    <p>Bot will now attempt to verify...</p>
+    <p><a href="/">Return to Home</a></p>
     """
 
 async def start_telegram_client():
@@ -56,25 +79,23 @@ async def start_telegram_client():
     )
     
     try:
-        await client.start()
+        if verification_code:
+            await client.start(phone_code=verification_code)
+        else:
+            await client.start()
         return client, True
     except Exception as e:
-        logger.error(f"Authentication needed: {e}")
+        logger.error(f"Authentication error: {e}")
         return None, False
 
-# Auto-react to new messages
 async def setup_auto_react(client):
     @client.on_message(filters.chat(CHANNEL_USERNAME))
     async def auto_react(client, message: Message):
         try:
-            # Don't react to own messages
             if message.from_user and message.from_user.is_self:
                 return
                 
-            # Wait a bit
             await asyncio.sleep(random.randint(5, 15))
-            
-            # React with random emoji
             reactions = ['👍', '❤️', '🔥', '⭐', '🎉']
             reaction = random.choice(reactions)
             
@@ -96,33 +117,30 @@ async def main_bot_loop():
                 bot_status = "Connected to Telegram!"
                 logger.info("✅ Telegram client started successfully!")
                 
-                # Join the channel
                 await client.join_chat(CHANNEL_USERNAME)
                 logger.info(f"✅ Joined channel: {CHANNEL_USERNAME}")
                 
-                # Setup auto-react
                 await setup_auto_react(client)
                 logger.info("🤖 Bot is now monitoring channel for new messages...")
                 bot_status = "Monitoring channel"
                 
-                # Keep running
                 await client.idle()
                 
             else:
                 bot_status = "Waiting for verification"
                 logger.info("📱 Check Telegram app for verification code")
-                logger.info("🔄 Retrying in 60 seconds...")
-                await asyncio.sleep(60)
+                logger.info("🔄 Retrying in 30 seconds...")
+                await asyncio.sleep(30)
                 
         except Exception as e:
             logger.error(f"❌ Bot error: {e}")
             bot_status = f"Error: {e}"
-            await asyncio.sleep(60)
+            await asyncio.sleep(30)
 
 def run_bot():
     asyncio.run(main_bot_loop())
 
 if __name__ == '__main__':
-    # Start Flask app only
+    from flask import request
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
