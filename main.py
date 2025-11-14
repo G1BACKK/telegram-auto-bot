@@ -1,6 +1,8 @@
 import os
 import asyncio
 import random
+import threading
+from flask import Flask
 from pyrogram import Client, filters
 from pyrogram.types import Message
 import logging
@@ -18,7 +20,18 @@ API_HASH = os.getenv('API_HASH')
 SESSION_STRING = os.getenv('SESSION_STRING')
 CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
 
-async def main():
+# Flask app for health checks
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "🤖 Telegram Auto Bot is Running!"
+
+@app.route('/health')
+def health():
+    return "OK"
+
+async def telegram_bot():
     # Create client with string session
     client = Client(
         "my_account",
@@ -70,6 +83,14 @@ async def main():
     except Exception as e:
         logger.error(f"❌ Bot error: {e}")
 
+def start_bot():
+    asyncio.run(telegram_bot())
+
 if __name__ == '__main__':
-    # Start the bot
-    asyncio.run(main())
+    # Start Telegram bot in background thread
+    bot_thread = threading.Thread(target=start_bot, daemon=True)
+    bot_thread.start()
+    
+    # Start Flask app (this keeps Render happy)
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
