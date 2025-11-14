@@ -24,119 +24,71 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🤖 Telegram Auto Bot - Monitoring Channel, Reacting & Joining Live Streams!"
+    return "🤖 Telegram Auto Bot - Viewing, Reacting & Joining Live Streams!"
 
 @app.route('/health')
 def health():
     return "OK"
 
-async def view_recent_posts(client, channel):
-    """View recent posts to appear active"""
+async def view_posts_activity(client, channel):
+    """Simple post viewing by fetching recent messages"""
     try:
-        logger.info("👀 Viewing recent posts...")
-        async for message in client.get_chat_history(channel.id, limit=5):
-            # Simply accessing the message marks it as viewed
-            if message.text:
-                logger.info(f"👁️ Viewed: {message.text[:50]}...")
-            else:
-                logger.info("👁️ Viewed media post")
-            await asyncio.sleep(2)
-        logger.info("✅ Finished viewing recent posts")
+        logger.info("👀 Starting post viewing activity...")
+        count = 0
+        async for message in client.get_chat_history(channel.id, limit=10):
+            # Mark as viewed by accessing message details
+            if count < 5:  # View first 5 posts
+                if message.text:
+                    logger.info(f"👁️ Viewed post: {message.text[:30]}...")
+                else:
+                    logger.info("👁️ Viewed media post")
+                count += 1
+                await asyncio.sleep(2)
+        logger.info(f"✅ Viewed {count} posts")
     except Exception as e:
-        logger.error(f"❌ Error viewing posts: {e}")
+        logger.error(f"❌ Error in post viewing: {e}")
 
-async def join_voice_chat(client, chat_id):
-    """Join active voice chat/live stream"""
+async def join_live_stream_simple(client, channel):
+    """Simple method to join live streams"""
     try:
-        # Try to get active group call
-        result = await client.invoke(
-            raw.functions.phone.GetGroupCall(
-                call=await client.invoke(
-                    raw.functions.phone.GetGroupCallJoinAs(
-                        peer=await client.resolve_peer(chat_id)
-                    )
-                )
-            )
-        )
+        logger.info("🎧 Checking for live streams...")
         
-        if result.call:
-            await client.invoke(
-                raw.functions.phone.JoinGroupCall(
-                    call=result.call,
-                    params=await client.invoke(
-                        raw.functions.phone.GetGroupCallJoinAs(
-                            peer=await client.resolve_peer(chat_id)
+        # Method 1: Check recent messages for live stream indicators
+        async for message in client.get_chat_history(channel.id, limit=20):
+            if message.text and any(keyword in message.text.lower() for keyword in 
+                                  ['live now', 'voice chat', 'stream', 'vc started', '🎧', '🔴 live']):
+                logger.info(f"🎬 Live stream detected: {message.text[:40]}...")
+                
+                # Try to join using group call methods
+                try:
+                    # Get active group calls
+                    result = await client.invoke(
+                        raw.functions.channels.GetFullChannel(
+                            channel=await client.resolve_peer(channel.id)
                         )
                     )
-                )
-            )
-            logger.info(f"🎧 SUCCESS: Joined voice chat in channel")
-            return True
-            
-    except Exception as e:
-        # Alternative method - try direct join
-        try:
-            await client.invoke(
-                raw.functions.phone.JoinGroupCall(
-                    call=raw.types.InputGroupCall(
-                        id=0,  # This will try to join any active call
-                        access_hash=0
-                    ),
-                    params=raw.types.DataJSON(data='{}')
-                )
-            )
-            logger.info(f"🎧 SUCCESS: Joined voice chat (alternative method)")
-            return True
-        except Exception as e2:
-            logger.info(f"🎧 No active voice chat or join failed: {e2}")
-    
-    return False
-
-async def check_and_join_live_streams(client, channel):
-    """Check for and join live streams"""
-    try:
-        logger.info("🔍 Checking for active live streams...")
+                    
+                    if hasattr(result, 'full_chat') and hasattr(result.full_chat, 'call'):
+                        logger.info("🎧 Found active group call, attempting to join...")
+                        # Join the call
+                        await client.invoke(
+                            raw.functions.phone.JoinGroupCall(
+                                call=result.full_chat.call,
+                                join_as=await client.resolve_peer((await client.get_me()).id),
+                                params=raw.types.DataJSON(data='{}')
+                            )
+                        )
+                        logger.info("✅ SUCCESS: Joined live stream!")
+                        return True
+                        
+                except Exception as call_error:
+                    logger.info(f"🎧 Could not join call: {call_error}")
         
-        # Check recent messages for live stream indicators
-        async for message in client.get_chat_history(channel.id, limit=15):
-            # Check if message indicates live stream
-            is_live = False
-            
-            # Check service messages (voice chat started)
-            if message.service:
-                service_text = str(message.service)
-                if any(keyword in service_text.lower() for keyword in ['voice_chat', 'group_call', 'live']):
-                    is_live = True
-                    logger.info(f"🎬 Live stream detected via service message")
-            
-            # Check message text for live keywords
-            elif message.text:
-                text_lower = message.text.lower()
-                live_keywords = [
-                    'live now', 'voice chat', 'stream', 'join vc', 
-                    'live stream', 'vc started', '🎧', '🔴', 'live:',
-                    'streaming', 'watch live', 'tune in'
-                ]
-                if any(keyword in text_lower for keyword in live_keywords):
-                    is_live = True
-                    logger.info(f"🎬 Live stream detected via keywords: {message.text[:30]}...")
-            
-            # If live stream detected, try to join
-            if is_live:
-                logger.info("🔄 Attempting to join live stream...")
-                await asyncio.sleep(5)
-                success = await join_voice_chat(client, channel.id)
-                if success:
-                    return True
-                else:
-                    logger.info("💤 No active voice chat found to join")
-                    break
-        
-        logger.info("❌ No live streams detected in recent messages")
+        logger.info("❌ No live streams found to join")
         return False
         
     except Exception as e:
-        logger.error(f"❌ Error checking live streams: {e}")
+        logger.error(f"❌ Live stream join error: {e}")
         return False
 
 async def telegram_bot():
@@ -152,109 +104,95 @@ async def telegram_bot():
         me = await client.get_me()
         logger.info(f"✅ Logged in as: {me.first_name} (@{me.username})")
         
-        # Get channel properly
-        try:
-            channel = await client.get_chat(CHANNEL_USERNAME)
-            logger.info(f"✅ Found channel: {channel.title}")
-        except Exception as e:
-            logger.error(f"❌ Cannot access channel {CHANNEL_USERNAME}: {e}")
-            return
+        # Get channel
+        channel = await client.get_chat(CHANNEL_USERNAME)
+        logger.info(f"✅ Monitoring channel: {channel.title}")
         
-        # Join channel if not already member
-        try:
-            await client.join_chat(CHANNEL_USERNAME)
-            logger.info(f"✅ Joined channel: {channel.title}")
-        except Exception as e:
-            logger.info(f"ℹ️ Already in channel: {e}")
-        
-        # Import raw functions for voice chat
+        # Import raw for voice chat features
         from pyrogram import raw
         
-        # Initial activities
-        await view_recent_posts(client, channel)  # View recent posts
-        await check_and_join_live_streams(client, channel)  # Check for live streams
+        # INITIAL ACTIVITIES - DO THIS ON START
+        logger.info("🔄 Performing initial activities...")
         
-        logger.info("🎯 BOT IS READY! Monitoring for messages, viewing posts & live streams...")
+        # 1. VIEW POSTS initially
+        await view_posts_activity(client, channel)
         
-        # Auto-react to ALL new messages
+        # 2. CHECK FOR LIVE STREAMS initially
+        await join_live_stream_simple(client, channel)
+        
+        logger.info("🎯 BOT READY! Auto-viewing, reacting & monitoring live streams")
+        
+        # MAIN MESSAGE HANDLER - FOR ALL NEW POSTS
         @client.on_message(filters.chat(channel.id))
-        async def handle_new_message(client, message: Message):
+        async def handle_all_messages(client, message: Message):
             try:
-                # Don't react to your own messages
-                if message.from_user and message.from_user.is_self:
+                # Skip own messages
+                if message.from_user and message.from_user.is_author:
                     return
                 
-                logger.info(f"📨 New message detected in {message.chat.title}")
+                logger.info(f"📨 New post detected in {message.chat.title}")
                 
-                # 1. VIEW the message (by accessing it)
-                logger.info("👀 Viewing message...")
+                # 1. AUTO-VIEW (happens automatically when we process the message)
+                logger.info("👀 Auto-viewing this post...")
                 
-                # 2. REACT to the message
+                # 2. AUTO-REACT after delay
                 await asyncio.sleep(random.randint(3, 8))
                 try:
-                    reaction_emojis = ['👍', '❤️', '🔥', '⭐', '🎉', '👏', '🙏', '😍']
-                    reaction = random.choice(reaction_emojis)
-                    
+                    reactions = ['👍', '❤️', '🔥', '⭐', '🎉']
+                    reaction = random.choice(reactions)
                     await client.send_reaction(
                         chat_id=message.chat.id,
                         message_id=message.id,
                         emoji=reaction
                     )
-                    logger.info(f"✅ REACTED with {reaction}!")
-                    
-                except Exception as reaction_error:
-                    logger.warning(f"⚠️ Cannot add reaction: {reaction_error}")
+                    logger.info(f"✅ Reacted: {reaction}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not react: {e}")
                 
-                # 3. Check if this might be a live stream announcement
-                is_live_announcement = False
-                if message.service:
-                    service_text = str(message.service).lower()
-                    if any(keyword in service_text for keyword in ['voice_chat', 'group_call', 'live']):
-                        is_live_announcement = True
-                elif message.text:
+                # 3. CHECK IF LIVE STREAM ANNOUNCEMENT
+                is_live = False
+                if message.text:
                     text_lower = message.text.lower()
-                    live_keywords = ['live now', 'voice chat', 'stream', 'join vc', 'live stream', 'vc started', '🎧']
+                    live_keywords = ['live now', 'voice chat', 'stream', 'vc started', '🎧', '🔴 live', 'join call']
                     if any(keyword in text_lower for keyword in live_keywords):
-                        is_live_announcement = True
+                        is_live = True
+                        logger.info("🎬 Live stream announcement detected!")
                 
-                # 4. JOIN live stream if announced
-                if is_live_announcement:
-                    logger.info("🎧 Live stream announcement detected! Joining...")
+                if is_live:
+                    logger.info("🔄 Attempting to join live stream in 10 seconds...")
                     await asyncio.sleep(10)
-                    await join_voice_chat(client, channel.id)
-                
+                    await join_live_stream_simple(client, channel)
+                    
             except Exception as e:
-                logger.error(f"❌ Message handling error: {e}")
+                logger.error(f"❌ Error handling message: {e}")
 
-        # Periodic activities
-        async def periodic_activities():
-            activity_count = 0
+        # PERIODIC ACTIVITIES
+        async def periodic_tasks():
+            counter = 0
             while True:
-                await asyncio.sleep(300)  # Every 5 minutes
-                activity_count += 1
+                await asyncio.sleep(180)  # Every 3 minutes
+                counter += 1
                 
-                if activity_count % 3 == 0:  # Every 15 minutes
+                if counter % 2 == 0:  # Every 6 minutes
                     logger.info("🔄 Periodic: Viewing recent posts...")
-                    await view_recent_posts(client, channel)
+                    await view_posts_activity(client, channel)
                 
-                if activity_count % 2 == 0:  # Every 10 minutes  
+                if counter % 3 == 0:  # Every 9 minutes
                     logger.info("🔄 Periodic: Checking for live streams...")
-                    await check_and_join_live_streams(client, channel)
+                    await join_live_stream_simple(client, channel)
                 
-                logger.info(f"📊 Periodic check #{activity_count} completed")
+                logger.info(f"📊 Bot active - Cycle {counter}")
         
-        # Start periodic activities
-        asyncio.create_task(periodic_activities())
+        # Start periodic tasks
+        asyncio.create_task(periodic_tasks())
         
-        logger.info(f"🤖 Now monitoring: {channel.title}")
-        logger.info("✅ Features: Auto-view posts, Auto-react, Auto-join live streams")
-        
-        # Keep the client running
+        # KEEP BOT RUNNING
+        logger.info("🤖 Bot is now actively monitoring...")
         while True:
             await asyncio.sleep(60)
             
     except Exception as e:
-        logger.error(f"❌ Bot error: {e}")
+        logger.error(f"❌ Bot crashed: {e}")
 
 def start_bot():
     asyncio.run(telegram_bot())
