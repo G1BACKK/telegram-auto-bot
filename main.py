@@ -47,7 +47,6 @@ async def telegram_bot():
         await client.join_chat(CHANNEL_USERNAME)
         logger.info(f"✅ Joined channel: {CHANNEL_USERNAME}")
         
-        # Log that bot is ready
         logger.info("🎯 BOT IS READY! Post a message in the channel to test!")
         
         @client.on_message(filters.chat(CHANNEL_USERNAME))
@@ -59,17 +58,25 @@ async def telegram_bot():
                 logger.info(f"📨 New message detected: {message.text[:50] if message.text else 'Media message'}")
                 await asyncio.sleep(random.randint(5, 15))
                 
-                reactions = ['👍', '❤️', '🔥', '⭐', '🎉']
-                reaction = random.choice(reactions)
-                await message.reply(reaction)
+                # Use message reactions instead of replies
+                reaction_emojis = ['👍', '❤️', '🔥', '⭐', '🎉']
+                reaction = random.choice(reaction_emojis)
+                
+                # Add reaction to the message
+                await client.send_reaction(
+                    chat_id=message.chat.id,
+                    message_id=message.id,
+                    emoji=reaction
+                )
                 logger.info(f"✅ REACTED with {reaction}!")
                 
             except Exception as e:
                 logger.error(f"❌ Reaction error: {e}")
+                logger.info("💡 If reactions don't work, the bot will still view messages")
         
         logger.info("🤖 Monitoring channel for new messages...")
         
-        # Keep the client running without idle()
+        # Keep the client running
         while True:
             await asyncio.sleep(10)
             
