@@ -39,19 +39,20 @@ async def telegram_bot():
     )
     
     try:
-        async with client:
-            me = await client.get_me()
-            logger.info(f"✅ Logged in as: {me.first_name} (@{me.username})")
-            
-            # Join channel
-            await client.join_chat(CHANNEL_USERNAME)
-            logger.info(f"✅ Joined channel: {CHANNEL_USERNAME}")
-            
-            # Log that bot is ready
-            logger.info("🎯 BOT IS READY! Post a message in the channel to test!")
-            
-            @client.on_message(filters.chat(CHANNEL_USERNAME))
-            async def auto_react(client, message: Message):
+        await client.start()
+        me = await client.get_me()
+        logger.info(f"✅ Logged in as: {me.first_name} (@{me.username})")
+        
+        # Join channel
+        await client.join_chat(CHANNEL_USERNAME)
+        logger.info(f"✅ Joined channel: {CHANNEL_USERNAME}")
+        
+        # Log that bot is ready
+        logger.info("🎯 BOT IS READY! Post a message in the channel to test!")
+        
+        @client.on_message(filters.chat(CHANNEL_USERNAME))
+        async def auto_react(client, message: Message):
+            try:
                 if message.from_user and message.from_user.is_self:
                     return
                 
@@ -62,9 +63,15 @@ async def telegram_bot():
                 reaction = random.choice(reactions)
                 await message.reply(reaction)
                 logger.info(f"✅ REACTED with {reaction}!")
-            
-            logger.info("🤖 Monitoring channel for new messages...")
-            await client.idle()
+                
+            except Exception as e:
+                logger.error(f"❌ Reaction error: {e}")
+        
+        logger.info("🤖 Monitoring channel for new messages...")
+        
+        # Keep the client running without idle()
+        while True:
+            await asyncio.sleep(10)
             
     except Exception as e:
         logger.error(f"❌ Error: {e}")
