@@ -1,32 +1,18 @@
-# Telegram session files
+# Session files
 *.session
 *.session-journal
 
 # Environment variables
 .env
-secrets/
 
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+env/
+venv/
 
 # IDE
 .vscode/
