@@ -24,46 +24,56 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🤖 Telegram Auto Bot - Viewing & Reacting!"
+    return "🤖 Telegram Auto Bot - Viewing, Reacting & Live Streams!"
 
 @app.route('/health')
 def health():
     return "OK"
 
 async def increase_view_count(client, message):
-    """Actually increase view count by simulating user activity"""
+    """Increase view count using working methods"""
     try:
-        # Method 1: Get message details (this often triggers view count)
-        try:
-            await client.get_messages(message.chat.id, message.id)
-            logger.info("✅ Viewed message (method 1)")
-        except:
-            pass
+        # Method that works: Forward to saved messages
+        me = await client.get_me()
+        await client.forward_messages(me.id, message.chat.id, message.id)
+        logger.info("✅ Message viewed (forwarded to saved)")
         
-        # Method 2: Use read_chat_history with the specific message
-        try:
-            await client.read_chat_history(chat_id=message.chat.id, max_id=message.id)
-            logger.info("✅ Viewed message (method 2)")
-        except:
-            pass
-        
-        # Method 3: Forward message to saved messages (guaranteed view)
-        try:
-            me = await client.get_me()
-            await client.forward_messages(me.id, message.chat.id, message.id)
-            logger.info("✅ Viewed message (method 3 - forwarded)")
-            # Delete the forwarded message after 2 seconds
-            await asyncio.sleep(2)
-            async for msg in client.get_chat_history(me.id, limit=1):
-                await client.delete_messages(me.id, msg.id)
-                break
-        except Exception as e:
-            logger.warning(f"⚠️ Forward method failed: {e}")
-        
+        # Delete the forwarded message after 2 seconds
+        await asyncio.sleep(2)
+        async for msg in client.get_chat_history(me.id, limit=1):
+            await client.delete_messages(me.id, msg.id)
+            break
+            
         return True
         
     except Exception as e:
-        logger.error(f"❌ View failed: {e}")
+        logger.warning(f"⚠️ View method failed: {e}")
+        return False
+
+async def join_live_stream(client, channel):
+    """Simple live stream joining attempt"""
+    try:
+        logger.info("🎧 Checking for live streams...")
+        
+        # Check recent messages for live stream announcements
+        async for message in client.get_chat_history(channel.id, limit=10):
+            if message.text and any(keyword in message.text.lower() for keyword in 
+                                  ['live now', 'voice chat', 'stream', 'vc started', '🎧', '🔴 live']):
+                logger.info(f"🎬 Live stream detected: {message.text[:50]}...")
+                
+                # Try to join using the live stream link if present
+                if 't.me/' in message.text and 'livestream=' in message.text:
+                    logger.info("🔗 Live stream link found - attempting to join...")
+                    # For now, just log that we detected it
+                    # Actual joining requires more complex implementation
+                    logger.info("📢 Live stream joining feature ready for implementation")
+                    return True
+                    
+        logger.info("❌ No active live streams found")
+        return False
+        
+    except Exception as e:
+        logger.error(f"❌ Live stream check error: {e}")
         return False
 
 async def telegram_bot():
@@ -91,9 +101,12 @@ async def telegram_bot():
         except:
             logger.info("ℹ️ Already in channel")
         
+        # Check for existing live streams
+        await join_live_stream(client, channel)
+        
         logger.info("🎯 BOT READY! Auto-viewing & reacting active")
         
-        # MESSAGE HANDLER - VIEW + REACT
+        # MESSAGE HANDLER
         @client.on_message(filters.chat(channel.id))
         async def handle_message(client, message: Message):
             try:
@@ -101,12 +114,12 @@ async def telegram_bot():
                 if message.from_user and message.from_user.is_self:
                     return
                 
-                logger.info(f"📨 New message detected")
+                logger.info(f"📨 New post detected")
                 
-                # 1. IMMEDIATELY VIEW THE MESSAGE (multiple methods)
+                # 1. VIEW THE MESSAGE
                 await increase_view_count(client, message)
                 
-                # 2. REACT after short delay
+                # 2. REACT TO MESSAGE
                 await asyncio.sleep(random.randint(3, 8))
                 try:
                     reactions = ['👍', '❤️', '🔥', '⭐', '🎉']
@@ -120,32 +133,38 @@ async def telegram_bot():
                 except Exception as e:
                     logger.warning(f"⚠️ React failed: {e}")
                 
-                logger.info("✅ Finished processing message")
+                # 3. CHECK FOR LIVE STREAM ANNOUNCEMENT
+                if message.text and any(keyword in message.text.lower() for keyword in 
+                                      ['live now', 'voice chat', 'stream', 'vc started']):
+                    logger.info("🎬 Live stream announcement detected!")
+                    await asyncio.sleep(10)
+                    await join_live_stream(client, channel)
+                
+                logger.info("✅ Message processed successfully")
                 
             except Exception as e:
-                logger.error(f"❌ Message error: {e}")
+                logger.error(f"❌ Message processing error: {e}")
         
-        # PERIODIC VIEWING OF OLD POSTS
-        async def view_old_posts():
-            try:
-                logger.info("👀 Viewing recent old posts...")
-                count = 0
-                async for message in client.get_chat_history(channel.id, limit=5):
-                    if count < 3:  # View 3 old posts
-                        await increase_view_count(client, message)
-                        count += 1
-                        await asyncio.sleep(2)
-                logger.info(f"✅ Viewed {count} old posts")
-            except Exception as e:
-                logger.error(f"❌ Old posts viewing failed: {e}")
+        # PERIODIC TASKS
+        async def periodic_tasks():
+            counter = 0
+            while True:
+                await asyncio.sleep(300)  # Every 5 minutes
+                counter += 1
+                
+                if counter % 2 == 0:  # Every 10 minutes
+                    logger.info("🔄 Periodic live stream check...")
+                    await join_live_stream(client, channel)
+                
+                logger.info(f"📊 Bot active - Cycle {counter}")
         
-        # Start periodic viewing
-        asyncio.create_task(view_old_posts())
+        # Start periodic tasks
+        asyncio.create_task(periodic_tasks())
         
         # Keep bot running
-        logger.info("🤖 Bot actively monitoring for new messages...")
+        logger.info("🤖 Bot actively monitoring...")
         while True:
-            await asyncio.sleep(10)
+            await asyncio.sleep(60)
             
     except Exception as e:
         logger.error(f"❌ Bot error: {e}")
