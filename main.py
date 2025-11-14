@@ -1,60 +1,48 @@
 import os
 import asyncio
 import random
+from flask import Flask
 from telethon import TelegramClient, events
 from dotenv import load_dotenv
 import logging
 
-# Load environment variables
 load_dotenv()
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration
 API_ID = int(os.getenv('API_ID'))
-API_HASH = os.getenv('API_HASH') 
+API_HASH = os.getenv('API_HASH')
 PHONE_NUMBER = os.getenv('PHONE_NUMBER')
 CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
-SESSION_NAME = 'auto_bot'
 
-class TelegramBot:
-    def __init__(self):
-        self.client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-        
-    async def start_bot(self):
-        try:
-            await self.client.start(phone=PHONE_NUMBER)
-            
-            if not await self.client.is_user_authorized():
-                await self.client.send_code_request(PHONE_NUMBER)
-                code = input("Enter code: ")
-                await self.client.sign_in(PHONE_NUMBER, code)
-            
-            me = await self.client.get_me()
-            logger.info(f"Logged in as: {me.first_name}")
-            
-            # Join channel
-            channel = await self.client.get_entity(CHANNEL_USERNAME)
-            await self.client.join_channel(channel)
-            logger.info(f"Joined channel: {CHANNEL_USERNAME}")
-            
-            # Setup message handler
-            @self.client.on(events.NewMessage(chats=channel))
-            async def handler(event):
-                if not event.message.out:
-                    await asyncio.sleep(random.randint(5, 10))
-                    reactions = ['👍', '❤️', '🔥', '⭐']
-                    await event.message.reply(random.choice(reactions))
-                    logger.info(f"Reacted to message {event.message.id}")
-            
-            logger.info("Bot is running...")
-            await self.client.run_until_disconnected()
-            
-        except Exception as e:
-            logger.error(f"Error: {e}")
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running"
+
+async def run_bot():
+    client = TelegramClient('session_name', API_ID, API_HASH)
+    
+    await client.start(PHONE_NUMBER)
+    if not await client.is_user_authorized():
+        await client.send_code_request(PHONE_NUMBER)
+        return "Check phone for code"
+    
+    channel = await client.get_entity(CHANNEL_USERNAME)
+    await client.join_channel(channel)
+    logger.info("Joined channel")
+    
+    @client.on(events.NewMessage(chats=channel))
+    async def handler(event):
+        if not event.message.out:
+            await asyncio.sleep(5)
+            await event.message.reply('👍')
+            logger.info("Reacted to message")
+    
+    await client.run_until_disconnected()
 
 if __name__ == '__main__':
-    bot = TelegramBot()
-    asyncio.run(bot.start_bot())
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
