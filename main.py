@@ -43,45 +43,63 @@ async def telegram_bot():
         me = await client.get_me()
         logger.info(f"✅ Logged in as: {me.first_name} (@{me.username})")
         
-        # Join channel
-        await client.join_chat(CHANNEL_USERNAME)
-        logger.info(f"✅ Joined channel: {CHANNEL_USERNAME}")
+        # Get channel entity properly
+        try:
+            channel = await client.get_chat(CHANNEL_USERNAME)
+            logger.info(f"✅ Found channel: {channel.title}")
+        except Exception as e:
+            logger.error(f"❌ Cannot access channel {CHANNEL_USERNAME}: {e}")
+            return
+        
+        # Join channel if not already member
+        try:
+            await client.join_chat(CHANNEL_USERNAME)
+            logger.info(f"✅ Joined channel: {channel.title}")
+        except Exception as e:
+            logger.info(f"ℹ️ Already in channel or can't join: {e}")
         
         logger.info("🎯 BOT IS READY! Post a message in the channel to test!")
         
-        @client.on_message(filters.chat(CHANNEL_USERNAME))
+        # Use the channel ID instead of username for better reliability
+        @client.on_message(filters.chat(channel.id))
         async def auto_react(client, message: Message):
             try:
+                # Don't react to your own messages
                 if message.from_user and message.from_user.is_self:
                     return
                 
-                logger.info(f"📨 New message detected: {message.text[:50] if message.text else 'Media message'}")
+                logger.info(f"📨 New message detected in {message.chat.title}")
                 await asyncio.sleep(random.randint(5, 15))
                 
-                # Use message reactions instead of replies
-                reaction_emojis = ['👍', '❤️', '🔥', '⭐', '🎉']
-                reaction = random.choice(reaction_emojis)
-                
-                # Add reaction to the message
-                await client.send_reaction(
-                    chat_id=message.chat.id,
-                    message_id=message.id,
-                    emoji=reaction
-                )
-                logger.info(f"✅ REACTED with {reaction}!")
+                # Try to add reaction
+                try:
+                    reaction_emojis = ['👍', '❤️', '🔥', '⭐', '🎉']
+                    reaction = random.choice(reaction_emojis)
+                    
+                    await client.send_reaction(
+                        chat_id=message.chat.id,
+                        message_id=message.id,
+                        emoji=reaction
+                    )
+                    logger.info(f"✅ REACTED with {reaction}!")
+                    
+                except Exception as reaction_error:
+                    logger.warning(f"⚠️ Cannot react (may need premium): {reaction_error}")
+                    # Still log that we viewed the message
+                    logger.info(f"👀 Viewed message in {message.chat.title}")
                 
             except Exception as e:
-                logger.error(f"❌ Reaction error: {e}")
-                logger.info("💡 If reactions don't work, the bot will still view messages")
+                logger.error(f"❌ Message handling error: {e}")
         
         logger.info("🤖 Monitoring channel for new messages...")
         
         # Keep the client running
         while True:
-            await asyncio.sleep(10)
+            await asyncio.sleep(30)  # Check every 30 seconds
+            logger.info("💤 Bot is still running and monitoring...")
             
     except Exception as e:
-        logger.error(f"❌ Error: {e}")
+        logger.error(f"❌ Bot error: {e}")
 
 def start_bot():
     asyncio.run(telegram_bot())
