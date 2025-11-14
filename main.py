@@ -46,9 +46,14 @@ async def telegram_bot():
             me = await client.get_me()
             logger.info(f"✅ Logged in as: {me.first_name} (@{me.username})")
             
-            # Join the target channel
-            await client.join_chat(CHANNEL_USERNAME)
-            logger.info(f"✅ Joined channel: {CHANNEL_USERNAME}")
+            # Join the target channel with error handling
+            try:
+                await client.join_chat(CHANNEL_USERNAME)
+                logger.info(f"✅ Joined channel: {CHANNEL_USERNAME}")
+            except Exception as e:
+                logger.error(f"❌ Failed to join channel {CHANNEL_USERNAME}: {e}")
+                logger.info("🤖 Bot will still run but won't auto-react")
+                return
             
             # Auto-react function
             @client.on_message(filters.chat(CHANNEL_USERNAME))
