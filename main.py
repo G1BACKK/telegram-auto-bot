@@ -1,7 +1,7 @@
 import os
 import asyncio
 import random
-from flask import Flask
+from flask import Flask, request
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from dotenv import load_dotenv
@@ -22,6 +22,7 @@ app = Flask(__name__)
 # Global variables
 bot_status = "Not started"
 verification_code = None
+client_instance = None
 
 @app.route('/')
 def home():
@@ -66,12 +67,14 @@ def submit_code():
     
     return f"""
     <h1>Code Submitted: {code}</h1>
-    <p>Bot will now attempt to verify...</p>
+    <p>Bot will now attempt to verify with this code...</p>
     <p><a href="/">Return to Home</a></p>
     """
 
 async def start_telegram_client():
-    client = Client(
+    global client_instance
+    
+    client_instance = Client(
         "my_account",
         api_id=API_ID,
         api_hash=API_HASH,
@@ -79,14 +82,12 @@ async def start_telegram_client():
     )
     
     try:
-        if verification_code:
-            await client.start(phone_code=verification_code)
-        else:
-            await client.start()
-        return client, True
+        # Start the client - it will handle verification automatically
+        await client_instance.start()
+        return True
     except Exception as e:
         logger.error(f"Authentication error: {e}")
-        return None, False
+        return False
 
 async def setup_auto_react(client):
     @client.on_message(filters.chat(CHANNEL_USERNAME))
@@ -111,20 +112,20 @@ async def main_bot_loop():
     while True:
         try:
             logger.info("🔄 Attempting to start Telegram client...")
-            client, success = await start_telegram_client()
+            success = await start_telegram_client()
             
-            if success and client:
+            if success and client_instance:
                 bot_status = "Connected to Telegram!"
                 logger.info("✅ Telegram client started successfully!")
                 
-                await client.join_chat(CHANNEL_USERNAME)
+                await client_instance.join_chat(CHANNEL_USERNAME)
                 logger.info(f"✅ Joined channel: {CHANNEL_USERNAME}")
                 
-                await setup_auto_react(client)
+                await setup_auto_react(client_instance)
                 logger.info("🤖 Bot is now monitoring channel for new messages...")
                 bot_status = "Monitoring channel"
                 
-                await client.idle()
+                await client_instance.idle()
                 
             else:
                 bot_status = "Waiting for verification"
@@ -141,6 +142,5 @@ def run_bot():
     asyncio.run(main_bot_loop())
 
 if __name__ == '__main__':
-    from flask import request
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
